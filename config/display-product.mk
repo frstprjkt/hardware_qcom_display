@@ -1,7 +1,3 @@
-ifeq (TARGET_HALS_PATH),)
-    TARGET_HALS_PATH := hardware/qcom-caf/sm8250-common
-endif
-
 # Display product definitions
 PRODUCT_PACKAGES += \
     android.hardware.graphics.mapper@3.0-impl-qti-display \
