@@ -17,6 +17,42 @@
  * limitations under the License.
  */
 
+/*
+* Changes from Qualcomm Innovation Center are provided under the following license:
+*
+* Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted (subject to the limitations in the
+* disclaimer below) provided that the following conditions are met:
+*
+*    * Redistributions of source code must retain the above copyright
+*      notice, this list of conditions and the following disclaimer.
+*
+*    * Redistributions in binary form must reproduce the above
+*      copyright notice, this list of conditions and the following
+*      disclaimer in the documentation and/or other materials provided
+*      with the distribution.
+*
+*    * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
+*      contributors may be used to endorse or promote products derived
+*      from this software without specific prior written permission.
+*
+* NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
+* GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
+* HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
+* WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+* MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+* IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+* ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+* DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+* GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+* INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+* IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+* OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+* IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
 #include <cutils/properties.h>
 #include <errno.h>
 #include <math.h>
@@ -30,6 +66,7 @@
 #include <utils/rect.h>
 #include <qd_utils.h>
 #include <vendor/qti/hardware/display/composer/3.0/IQtiComposerClient.h>
+#include <QtiGralloc.h>
 
 #include <algorithm>
 #include <iomanip>
@@ -722,22 +759,25 @@ void HWCDisplay::BuildLayerStack() {
 
     bool is_secure = false;
     bool is_video = false;
-    const private_handle_t *handle =
-        reinterpret_cast<const private_handle_t *>(layer->input_buffer.buffer_id);
+    const native_handle_t *handle =
+        reinterpret_cast<const native_handle_t *>(layer->input_buffer.buffer_id);
     if (handle) {
-      if (handle->buffer_type == BUFFER_TYPE_VIDEO) {
+      uint32_t buffer_type = 0;
+      buffer_allocator_->GetBufferType(const_cast<native_handle_t *>(handle), buffer_type);
+      if (buffer_type == BUFFER_TYPE_VIDEO) {
         layer_stack_.flags.video_present = true;
         is_video = true;
       }
       // TZ Protected Buffer - L1
       // Gralloc Usage Protected Buffer - L3 - which needs to be treated as Secure & avoid fallback
-      if (handle->flags & private_handle_t::PRIV_FLAGS_PROTECTED_BUFFER ||
-          handle->flags & private_handle_t::PRIV_FLAGS_SECURE_BUFFER) {
+      int32_t handle_flags;
+      buffer_allocator_->GetPrivateFlags((void *)handle, handle_flags);
+      if (handle_flags & qtigralloc::PRIV_FLAGS_SECURE_BUFFER) {
         layer_stack_.flags.secure_present = true;
         is_secure = true;
       }
       // UBWC PI format
-      if (handle->flags & private_handle_t::PRIV_FLAGS_UBWC_ALIGNED_PI) {
+      if (handle_flags & qtigralloc::PRIV_FLAGS_UBWC_ALIGNED_PI) {
         layer->input_buffer.flags.ubwc_pi = true;
       }
     }
@@ -1822,41 +1862,49 @@ void HWCDisplay::DumpInputBuffers() {
 
   for (uint32_t i = 0; i < layer_stack_.layers.size(); i++) {
     auto layer = layer_stack_.layers.at(i);
-    const private_handle_t *pvt_handle =
-        reinterpret_cast<const private_handle_t *>(layer->input_buffer.buffer_id);
+    const native_handle_t *handle =
+        reinterpret_cast<const native_handle_t *>(layer->input_buffer.buffer_id);
     Fence::Wait(layer->input_buffer.acquire_fence);
 
-    DLOGI("Dump layer[%d] of %d pvt_handle %p pvt_handle->base %" PRIx64, i,
-          UINT32(layer_stack_.layers.size()), pvt_handle, pvt_handle? pvt_handle->base : 0);
+    DLOGI("Dump layer[%d] of %lu handle %p", i, layer_stack_.layers.size(), handle);
 
-    if (!pvt_handle) {
+    if (!handle) {
       DLOGE("Buffer handle is null");
       continue;
     }
 
-    if (!pvt_handle->base) {
-      DisplayError error = buffer_allocator_->MapBuffer(pvt_handle, nullptr);
-      if (error != kErrorNone) {
-        DLOGE("Failed to map buffer, error = %d", error);
-        continue;
-      }
+    void *base_ptr = NULL;
+    int error = buffer_allocator_->MapBuffer(handle, nullptr, base_ptr);
+    if (error != kErrorNone) {
+      DLOGE("Failed to map buffer, error = %d", error);
+      continue;
     }
 
     char dump_file_name[PATH_MAX];
     size_t result = 0;
 
-    snprintf(dump_file_name, sizeof(dump_file_name), "%s/input_layer%d_%dx%d_%s_frame%d.raw",
-             dir_path, i, pvt_handle->width, pvt_handle->height,
-             qdutils::GetHALPixelFormatString(pvt_handle->format), dump_frame_index_);
+    uint32_t width = 0, height = 0, alloc_size = 0;
+    int32_t format = 0;
 
-    FILE *fp = fopen(dump_file_name, "w+");
-    if (fp) {
-      result = fwrite(reinterpret_cast<void *>(pvt_handle->base), pvt_handle->size, 1, fp);
-      fclose(fp);
+    buffer_allocator_->GetWidth((void *)handle, width);
+    buffer_allocator_->GetHeight((void *)handle, height);
+    buffer_allocator_->GetFormat((void *)handle, format);
+    buffer_allocator_->GetAllocationSize((void *)handle, alloc_size);
+
+    snprintf(dump_file_name, sizeof(dump_file_name), "%s/input_layer%d_%dx%d_%s_frame%d.raw",
+             dir_path, i, width, height, qdutils::GetHALPixelFormatString(format),
+             dump_frame_index_);
+
+    if (base_ptr != nullptr) {
+      FILE *fp = fopen(dump_file_name, "w+");
+      if (fp) {
+        result = fwrite(base_ptr, alloc_size, 1, fp);
+        fclose(fp);
+      }
     }
 
     int release_fence = -1;
-    DisplayError error = buffer_allocator_->UnmapBuffer(pvt_handle, &release_fence);
+    error = buffer_allocator_->UnmapBuffer(handle, &release_fence);
     if (error != kErrorNone) {
       DLOGE("Failed to unmap buffer, error = %d", error);
       continue;
@@ -1997,7 +2045,7 @@ int HWCDisplay::SetFrameBufferResolution(uint32_t x_pixels, uint32_t y_pixels) {
   HWCDebugHandler::Get()->GetProperty(DISABLE_UBWC_PROP, &ubwc_disabled);
   if (!ubwc_disabled) {
     usage |= GRALLOC_USAGE_PRIVATE_ALLOC_UBWC;
-    flags |= private_handle_t::PRIV_FLAGS_UBWC_ALIGNED;
+    flags |= qtigralloc::PRIV_FLAGS_UBWC_ALIGNED;
   }
 
   buffer_allocator_->GetAlignedWidthAndHeight(INT(x_pixels), INT(y_pixels), format, usage,
@@ -2627,7 +2675,7 @@ HWC2::Error HWCDisplay::SetActiveConfigWithConstraints(
   DTRACE_SCOPED();
 
   if (variable_config_map_.find(config) == variable_config_map_.end()) {
-    DLOGE("Invalid config: %d", config);
+    DLOGW("Invalid config: %d", config);
     return HWC2::Error::BadConfig;
   }
 
@@ -2718,7 +2766,8 @@ bool HWCDisplay::GetTransientVsyncPeriod(VsyncPeriodNanos *vsync_period) {
 
 std::tuple<int64_t, int64_t> HWCDisplay::RequestActiveConfigChange(
     hwc2_config_t config, VsyncPeriodNanos current_vsync_period, int64_t desired_time) {
-  int64_t refresh_time, applied_time;
+  int64_t refresh_time = 0;
+  int64_t applied_time = 0;
   std::tie(refresh_time, applied_time) =
       EstimateVsyncPeriodChangeTimeline(current_vsync_period, desired_time);
 
@@ -2755,7 +2804,7 @@ void HWCDisplay::SubmitActiveConfigChange(VsyncPeriodNanos current_vsync_period)
   }
 
   std::lock_guard<std::mutex> lock(transient_refresh_rate_lock_);
-  hwc_vsync_period_change_timeline_t timeline;
+  hwc_vsync_period_change_timeline_t timeline = {};
   std::tie(timeline.refreshTimeNanos, timeline.newVsyncAppliedTimeNanos) =
       EstimateVsyncPeriodChangeTimeline(current_vsync_period, pending_refresh_rate_refresh_time_);
 

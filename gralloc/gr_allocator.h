@@ -33,17 +33,14 @@
 #include <vector>
 
 #include "gr_buf_descriptor.h"
-#include "gr_ion_alloc.h"
 #include "gr_utils.h"
 #include "gralloc_priv.h"
+#include "gr_alloc_interface.h"
 
 namespace gralloc {
 
 class Allocator {
  public:
-  Allocator();
-  ~Allocator();
-  bool Init();
   void SetProperties(gralloc::GrallocProperties props);
   int MapBuffer(void **base, unsigned int size, unsigned int offset, int fd);
   int ImportBuffer(int fd);
@@ -55,11 +52,6 @@ class Allocator {
                              const std::vector<std::shared_ptr<BufferDescriptor>> &descriptors,
                              ssize_t *max_index);
  private:
-  void GetIonHeapInfo(uint64_t usage, unsigned int *ion_heap_id, unsigned int *alloc_type,
-                      unsigned int *ion_flags);
-
-  IonAlloc *ion_allocator_ = NULL;
-
   bool use_system_heap_for_sensors_ = true;
 };
 

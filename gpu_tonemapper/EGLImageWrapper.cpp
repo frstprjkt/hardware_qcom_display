@@ -4,6 +4,8 @@
  *
  * Copyright 2015 The Android Open Source Project
  *
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
@@ -26,6 +28,7 @@
 #include <string>
 #include <map>
 #include <utility>
+#include <sys/stat.h>
 
 using std::string;
 using std::map;
@@ -39,14 +42,9 @@ static string get_ion_buff_str(int buff_fd)
 {
   string retStr = {};
   if (buff_fd >= 0) {
-    string fdString = std::to_string(buff_fd);
-    string symlinkPath = "/proc/"+pidString+"/fd/"+fdString;
-    char buffer[1024] = {};
-    ssize_t ret = ::readlink(symlinkPath.c_str(), buffer, sizeof(buffer) - 1);
-    if (ret != -1) {
-      buffer[ret] = '\0';
-      retStr = buffer;
-    }
+    struct stat stat1;
+    fstat(buff_fd, &stat1);
+    retStr = std::to_string(stat1.st_ino);
   }
 
   return retStr;
@@ -144,9 +142,7 @@ static EGLImageBuffer* L_wrap(const private_handle_t *src)
 
   android::sp<android::GraphicBuffer> graphicBuffer =
     new android::GraphicBuffer(unaligned_width, unaligned_height, src->format,
-#ifndef __NOUGAT__
                                1,  // Layer count
-#endif
                                flags, stride /*src->stride*/,
                                native_handle, false);
 

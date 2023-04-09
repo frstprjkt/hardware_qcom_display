@@ -71,6 +71,7 @@ fi
 
 case "$target" in
     "bengal")
+    setprop vendor.gralloc.use_dma_buf_heaps 1
     # Set property to differentiate bengal and khaje
     # Soc Id for khaje is 518
     # Soc Id for khaje APQ is 561

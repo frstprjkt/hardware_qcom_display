@@ -27,11 +27,45 @@
  * IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+* Changes from Qualcomm Innovation Center are provided under the following license:
+*
+* Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+*
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted (subject to the limitations in the
+* disclaimer below) provided that the following conditions are met:
+*
+*    * Redistributions of source code must retain the above copyright
+*      notice, this list of conditions and the following disclaimer.
+*
+*    * Redistributions in binary form must reproduce the above
+*      copyright notice, this list of conditions and the following
+*      disclaimer in the documentation and/or other materials provided
+*      with the distribution.
+*
+*    * Neither the name of Qualcomm Innovation Center, Inc. nor the names of its
+*      contributors may be used to endorse or promote products derived
+*      from this software without specific prior written permission.
+*
+* NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S PATENT RIGHTS ARE
+* GRANTED BY THIS LICENSE. THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT
+* HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED
+* WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+* MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+* IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
+* ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+* DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
+* GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+* INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
+* IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+* OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
+* IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
 #include "QtiGralloc.h"
 
 #include <log/log.h>
-#include "color_extensions.h"
-
 namespace qtigralloc {
 
 using android::hardware::graphics::mapper::V4_0::IMapper;
@@ -149,25 +183,6 @@ Error encodeCVPMetadata(CVPMetadata &in, hidl_vec<uint8_t> *out) {
   return Error::NONE;
 }
 
-Error decodeCRCBufferDataRaw(hidl_vec<uint8_t> &in, void *out)
-{
-  if (!in.size() || !out) {
-    return Error::BAD_VALUE;
-  }
-  memcpy(out, in.data(), CRC_BUFFER_SIZE_IN_BYTES);
-  return Error::NONE;
-}
-
-Error encodeCRCBufferDataRaw(void *in, hidl_vec<uint8_t> *out)
-{
-  if (!out) {
-    return Error::BAD_VALUE;
-  }
-  out->resize(CRC_BUFFER_SIZE_IN_BYTES);
-  memcpy(out->data(), in, CRC_BUFFER_SIZE_IN_BYTES);
-  return Error::NONE;
-}
-
 Error decodeVideoHistogramMetadata(hidl_vec<uint8_t> &in, VideoHistogramMetadata *out) {
   if (!in.size() || !out) {
     return Error::BAD_VALUE;
@@ -182,23 +197,6 @@ Error encodeVideoHistogramMetadata(VideoHistogramMetadata &in, hidl_vec<uint8_t>
   }
   out->resize(sizeof(VideoHistogramMetadata));
   memcpy(out->data(), &in, sizeof(VideoHistogramMetadata));
-  return Error::NONE;
-}
-
-Error decodeVideoTranscodeStatsMetadata(hidl_vec<uint8_t> &in, VideoTranscodeStatsMetadata *out) {
-  if (!in.size() || !out) {
-    return Error::BAD_VALUE;
-  }
-  memcpy(out, in.data(), sizeof(VideoTranscodeStatsMetadata));
-  return Error::NONE;
-}
-
-Error encodeVideoTranscodeStatsMetadata(VideoTranscodeStatsMetadata &in, hidl_vec<uint8_t> *out) {
-  if (!out) {
-    return Error::BAD_VALUE;
-  }
-  out->resize(sizeof(VideoTranscodeStatsMetadata));
-  memcpy(out->data(), &in, sizeof(VideoTranscodeStatsMetadata));
   return Error::NONE;
 }
 
@@ -223,7 +221,7 @@ Error decodeYUVPlaneInfoMetadata(hidl_vec<uint8_t> &in, qti_ycbcr *out) {
   if (!in.size() || !out) {
     return Error::BAD_VALUE;
   }
-  //qti_ycbcr *p = reinterpret_cast<qti_ycbcr *>(in.data());
+  qti_ycbcr *p = reinterpret_cast<qti_ycbcr *>(in.data());
   memcpy(out, in.data(), (YCBCR_LAYOUT_ARRAY_SIZE * sizeof(qti_ycbcr)));
   return Error::NONE;
 }
@@ -234,38 +232,6 @@ Error encodeYUVPlaneInfoMetadata(qti_ycbcr *in, hidl_vec<uint8_t> *out) {
   }
   out->resize(YCBCR_LAYOUT_ARRAY_SIZE * sizeof(qti_ycbcr));
   memcpy(out->data(), in, YCBCR_LAYOUT_ARRAY_SIZE * sizeof(qti_ycbcr));
-  return Error::NONE;
-}
-
-Error decodeCustomContentMetadata(hidl_vec<uint8_t> &in, void *out) {
-  static size_t target_size = sizeof(CustomContentMetadata);
-
-  if (in.size() != target_size || !out) {
-    return Error::BAD_VALUE;
-  }
-
-  CustomContentMetadata *c_md_in = reinterpret_cast<CustomContentMetadata *>(in.data());
-  CustomContentMetadata *c_md_out = reinterpret_cast<CustomContentMetadata *>(out);
-
-  if (c_md_in->size > CUSTOM_METADATA_SIZE_BYTES) {
-    return Error::BAD_VALUE;
-  }
-
-  c_md_out->size = c_md_in->size;
-  memcpy(c_md_out->metadataPayload, c_md_in->metadataPayload, c_md_in->size);
-  return Error::NONE;
-}
-
-Error encodeCustomContentMetadata(const void *in, hidl_vec<uint8_t> *out) {
-  static size_t target_size = sizeof(CustomContentMetadata);
-
-  if (!in || !out) {
-    return Error::BAD_VALUE;
-  }
-
-  out->resize(target_size);
-
-  memcpy(out->data(), in, target_size);
   return Error::NONE;
 }
 
@@ -295,8 +261,6 @@ MetadataType getMetadataType(uint32_t in) {
       return MetadataType_CVPMetadata;
     case QTI_VIDEO_HISTOGRAM_STATS:
       return MetadataType_VideoHistogramStats;
-    case QTI_VIDEO_TRANSCODE_STATS:
-      return MetadataType_VideoTranscodeStats;
     case QTI_VIDEO_TS_INFO:
       return MetadataType_VideoTimestampInfo;
     case QTI_FD:
@@ -323,12 +287,6 @@ MetadataType getMetadataType(uint32_t in) {
       return MetadataType_ColorSpace;
     case QTI_YUV_PLANE_INFO:
       return MetadataType_YuvPlaneInfo;
-    case QTI_TIMED_RENDERING:
-      return MetadataType_TimedRendering;
-    case QTI_CUSTOM_CONTENT_METADATA:
-      return MetadataType_CustomContentMetadata;
-    case QTI_CRC_BUFFER:
-      return MetadataType_CRCBuffer;
     default:
       return MetadataType_Invalid;
   }
@@ -402,10 +360,6 @@ Error get(void *buffer, uint32_t type, void *param) {
       err = decodeVideoHistogramMetadata(bytestream,
                                          reinterpret_cast<VideoHistogramMetadata *>(param));
       break;
-    case QTI_VIDEO_TRANSCODE_STATS:
-      err = decodeVideoTranscodeStatsMetadata(bytestream,
-                                   reinterpret_cast<VideoTranscodeStatsMetadata *>(param));
-      break;
     case QTI_VIDEO_TS_INFO:
       err = decodeVideoTimestampInfo(bytestream, reinterpret_cast<VideoTimestampInfo *>(param));
       break;
@@ -456,16 +410,6 @@ Error get(void *buffer, uint32_t type, void *param) {
       break;
     case QTI_YUV_PLANE_INFO:
       err = decodeYUVPlaneInfoMetadata(bytestream, reinterpret_cast<qti_ycbcr *>(param));
-      break;
-    case QTI_TIMED_RENDERING:
-      err = static_cast<Error>(android::gralloc4::decodeUint32(
-          qtigralloc::MetadataType_TimedRendering, bytestream, reinterpret_cast<uint32_t *>(param)));
-      break;
-    case QTI_CUSTOM_CONTENT_METADATA:
-      err = decodeCustomContentMetadata(bytestream, param);
-      break;
-    case QTI_CRC_BUFFER:
-      err = decodeCRCBufferDataRaw(bytestream, param);
       break;
     default:
       param = nullptr;
@@ -535,20 +479,8 @@ Error set(void *buffer, uint32_t type, void *param) {
       err = encodeVideoHistogramMetadata(*reinterpret_cast<VideoHistogramMetadata *>(param),
                                          &bytestream);
       break;
-    case QTI_VIDEO_TRANSCODE_STATS:
-      err = encodeVideoTranscodeStatsMetadata(
-            *reinterpret_cast<VideoTranscodeStatsMetadata *>(param), &bytestream);
-      break;
     case QTI_VIDEO_TS_INFO:
       err = encodeVideoTimestampInfo(*reinterpret_cast<VideoTimestampInfo *>(param), &bytestream);
-      break;
-    case QTI_TIMED_RENDERING:
-      err = static_cast<Error>(
-          android::gralloc4::encodeUint32(qtigralloc::MetadataType_TimedRendering,
-                                          *reinterpret_cast<uint32_t *>(param), &bytestream));
-      break;
-    case QTI_CUSTOM_CONTENT_METADATA:
-      err = encodeCustomContentMetadata(param, &bytestream);
       break;
     default:
       param = nullptr;
